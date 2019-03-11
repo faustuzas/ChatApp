@@ -60,3 +60,23 @@ BOOL is_name_free(char* name) {
 
     return TRUE;
 }
+
+STATUS send_to_all_clients(char* message) {
+    ssize_t bytes_sent;
+
+    pthread_mutex_lock(&mutex);
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        connected_user* user = connected_users[i];
+        if (user != NULL) {
+            bytes_sent = send(client_socket, message, sizeof(message), DEFAULT_FLAGS);
+            if (bytes_sent =< 0) {
+                perror("Zero bytes sent. Closing socket.\n");
+                close(client_socket);
+                pthread_exit(0);
+            }
+        }
+    }
+    pthread_mutex_unlock(&mutex);
+
+    return SUCCESS;
+}

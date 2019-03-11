@@ -5,19 +5,24 @@ void* client_runner(void* arg) {
     free(arg);
 
     char buffer[BUFFER_SIZE] = { 0 };
+
+    ssize_t bytes_sent;
+    ssize_t bytes_received;
+
     connected_user user;
     user.socket_descriptor = client_socket;
 
     // get user name
     while (TRUE) {
-        ssize_t bytes_sent = send(client_socket, PROTOCOL_MESSAGE_GET_NAME, sizeof(PROTOCOL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
+        bytes_sent = send(client_socket, PROTOCOL_MESSAGE_GET_NAME, sizeof(PROTOCOL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
 
-        if (bytes_sent < 0) {
+        if (bytes_sent =< 0) {
+            perror("Zero bytes sent. Closing socket.\n");
             close(client_socket);
 	        pthread_exit(0);
         }
 
-        ssize_t bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
+        bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
         if (bytes_received <= 0) {
             perror("Zero bytes received. Closing socket.\n");
             close(client_socket);
@@ -29,6 +34,12 @@ void* client_runner(void* arg) {
             user.name = buffer;
             STATUS status = save_client(&user);
             if (status == SUCCESS) {
+                bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK), DEFAULT_FLAGS);
+                if (bytes_sent =< 0) {
+                    perror("Zero bytes sent. Closing socket.\n");
+                    close(client_socket);
+                    pthread_exit(0);
+                }
                 printf("User connected with name: %s\n", user.name);
                 break;
             } else {
@@ -38,21 +49,20 @@ void* client_runner(void* arg) {
         }
     }
 
-    printf("Ready for communication\n");
+    printf("User %s ready for communication\n", user.name);
 
-    // recv(client_socket, &client_message, sizeof(client_message), 0);
+    while (TRUE) {
+        bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
+        if (bytes_received <= 0) {
+            break;
+        }
+        char message[BUFFER_SIZE];
+        snprintf(message, BUFFER_SIZE, "PRANESIMAS%s: %s", user.name, buffer);
+        puts(message);
+        send_to_all_clients(message);
+    }
 
-    //     if (strlen(client_message) > 0) {
-    //         printf("Message from client: %s", client_message);
-    //         uppercase(client_message, sizeof(client_message));
-
-    //         char response[512];
-    //         snprintf(response, sizeof response, "\nCounter: %d\n", counter++);
-            
-    //         strcat(response, client_message);
-    //         send(client_socket, response, sizeof(client_message), 0);
-    //     }
-
+    close(client_socket);
 	pthread_exit(0);
 }
 

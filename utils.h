@@ -34,7 +34,8 @@ typedef struct connected_user {
     char* name;
 } connected_user;
 
-static const char PROTOCOL_MESSAGE_GET_NAME[] = "ATSIUSKVARDA\n";
+static const char* PROTOCOL_MESSAGE_GET_NAME = "ATSIUSKVARDA\n";
+static const char* PROTOCOL_MESSAGE_NAME_OK = "VARDASOK\n";
 
 void strip_string(char* str);
 
