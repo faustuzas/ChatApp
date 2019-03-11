@@ -38,7 +38,7 @@ void* client_runner(void* arg) {
             strcpy(user.name, buffer);
             STATUS status = save_client(&user);
             if (status == SUCCESS) {
-                bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK), DEFAULT_FLAGS);
+                bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK) - 1, DEFAULT_FLAGS);
                 if (bytes_sent <= 0) {
                     perror("Zero bytes sent. Closing socket.\n");
                     remove_client(&user);
@@ -57,14 +57,12 @@ void* client_runner(void* arg) {
     while (TRUE) {
         bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
         strip_string(buffer);
-        printf("Bytes received: %d\n", (int)bytes_received);
         if (bytes_received <= 0) {
             printf("Client left. Exiting thread...\n");
             break;
         }
         char message[BUFFER_SIZE];
         snprintf(message, BUFFER_SIZE, "PRANESIMAS%s: %s\n", user.name, buffer);
-        printf("%s\n", message);
         send_to_all_clients(message);
     }
 
@@ -75,8 +73,8 @@ void* client_runner(void* arg) {
 int main() {
     
     // get port from the user
-    char port_buffer[7] = "8000";
-    // get_server_port("Enter server port to listen: ", port_buffer);
+    char port_buffer[7];
+    get_server_port("Enter server port to listen: ", port_buffer);
 
     struct addrinfo hints;
     memset(&hints, 0, sizeof hints);
@@ -131,12 +129,16 @@ int main() {
         exit(1);
     }
 
+    printf("Server is listening on port %s\n", port_buffer);
+
     while (TRUE) {
         int client_socket = accept(server_socket, NULL, NULL);
         if (client_socket <= 0) {
             perror("Error while accepting connection\n");
             break;
         }
+
+        printf("New client connected\n");
 
         int *socket_ptr = malloc(sizeof(int));
         if (socket_ptr == NULL) {
