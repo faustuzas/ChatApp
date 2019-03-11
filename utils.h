@@ -45,6 +45,8 @@ void uppercase(char* string, int length);
 
 STATUS save_client(connected_user *user);
 
+void remove_client(connected_user *user);
+
 BOOL is_name_free(char* name);
 
 BOOL is_room_full();

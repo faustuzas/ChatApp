@@ -35,6 +35,18 @@ STATUS save_client(connected_user *user) {
     return status;
 }
 
+void remove_client(connected_user *user) {
+    pthread_mutex_lock(&mutex);
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (connected_users[i] == user) {
+            connected_users[i] = NULL;
+            close(user->socket_descriptor);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&mutex);
+}
+
 BOOL is_room_full() {
     int places_occupied = 0;
 

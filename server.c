@@ -41,12 +41,12 @@ void* client_runner(void* arg) {
                 bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK), DEFAULT_FLAGS);
                 if (bytes_sent <= 0) {
                     perror("Zero bytes sent. Closing socket.\n");
-                    close(client_socket);
+                    remove_client(&user);
                     pthread_exit(0);
                 }
                 break;
             } else {
-                close(client_socket);
+                remove_client(&user);
 	            pthread_exit(0);
             }
         }
@@ -68,7 +68,7 @@ void* client_runner(void* arg) {
         send_to_all_clients(message);
     }
 
-    close(client_socket);
+    remove_client(&user);
 	pthread_exit(0);
 }
 
