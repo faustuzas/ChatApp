@@ -1,39 +1,71 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "utils.h"
 
-#include <sys/types.h>
-#include <sys/socket.h>
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-#include <unistd.h>
-#include <strings.h>
-#include <string.h>
+void* client_runner(void* arg)
+{
+    char buffer[BUFFER_SIZE] = { 0 };
+	int client_socket = *(int*) arg;
+    connected_user user;
+    user.socket_descriptor = client_socket;
 
-#include <ctype.h>
-#include <netinet/in.h>
-#include <netdb.h>
+    // get user name
+    while (TRUE) {
+        ssize_t bytes_sent = send(client_socket, PROTOCAL_MESSAGE_GET_NAME, sizeof(PROTOCAL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
 
-#define MAX_CLIENTS 10;
-#define TRUE 1
+        if (bytes_sent < 0) {
+            close(client_socket);
+	        pthread_exit(0);
+        }
 
-typedef struct connected_user {
-    int socket_descriptor;
-    char* name;
-} connected_user;
+        ssize_t bytes_recevied = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
+        if (bytes_recevied <= 0) {
+            close(client_socket);
+            pthread_exit(0);
+        }
 
-void strip_string(char* str) {
-    str[strcspn(str, "\n")] = 0;
-}
+        BOOL name_is_taken = FALSE;
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            connected_user cu = connected_users[i];
+            if (connected_user != NULL) {
+                if (strcmp(cu.name, buffer) == 0) {
+                    name_is_taken = TRUE;
+                    break;
+                }
+            }
+        }
 
-void get_server_port(char* message, char* port_buffer) {
-    puts(message);
-    fgets(port_buffer, sizeof port_buffer, stdin);
-    strip_string(port_buffer);
-}
-
-void uppercase(char* string, int length) {
-    for (int i = 0; i < length; ++i) {
-        string[i] = toupper(string[i]);
+        if (name_is_taken) {
+            continue;
+        } else {
+            user.name = buffer;
+            STATUS status = save_client(&user);
+            if (STATUS == SUCCESS) {
+                printf("User connected with name: %s", user.name);
+                break;
+            } else {
+                close(client_socket);
+	            pthread_exit(0);
+            }
+        }
     }
+
+    printf("Ready for communication");
+
+    // recv(client_socket, &client_message, sizeof(client_message), 0);
+
+    //     if (strlen(client_message) > 0) {
+    //         printf("Message from client: %s", client_message);
+    //         uppercase(client_message, sizeof(client_message));
+
+    //         char response[512];
+    //         snprintf(response, sizeof response, "\nCounter: %d\n", counter++);
+            
+    //         strcat(response, client_message);
+    //         send(client_socket, response, sizeof(client_message), 0);
+    //     }
+
+	pthread_exit(0);
 }
 
 int main() {
@@ -89,36 +121,25 @@ int main() {
     freeaddrinfo(server_info); // all done with this structure
 
     // make socket passive and listen for connection
-    if (listen(server_socket, 5) == -1) {
+    if (listen(server_socket, MAX_CLIENTS) == -1) {
         perror("Error while listening\n");
         close(server_socket);
         exit(1);
     }
 
+    pthreads_t thread_ids[MAX_CLIENTS];
     while (TRUE) {
-        connected_user new_user;
         int client_socket = accept(server_socket, NULL, NULL);
+        if (client_socket =< 0) {
+            perror("Error while accepting connection");
+            break;
+        }
+
+		pthread_create(&thread_ids[i], NULL, sum_runner, &client_socket);
     }
 
-    // accept new incomming connection
-    int client_socket = accept(server_socket, NULL, NULL);
-
-    // wait for message, transform it and sent it back
-    int counter = 1;
-    char client_message[256] = { 0 };
-    while(1) {
-        recv(client_socket, &client_message, sizeof(client_message), 0);
-
-        if (strlen(client_message) > 0) {
-            printf("Message from client: %s", client_message);
-            uppercase(client_message, sizeof(client_message));
-
-            char response[512];
-            snprintf(response, sizeof response, "\nCounter: %d\n", counter++);
-            
-            strcat(response, client_message);
-            send(client_socket, response, sizeof(client_message), 0);
-        }
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        pthread_join(thread_ids[i], NULL);
     }
 
     // close socket
