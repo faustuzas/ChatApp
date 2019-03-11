@@ -16,7 +16,7 @@ void* client_runner(void* arg) {
     while (TRUE) {
         bytes_sent = send(client_socket, PROTOCOL_MESSAGE_GET_NAME, sizeof(PROTOCOL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
 
-        if (bytes_sent =< 0) {
+        if (bytes_sent <= 0) {
             perror("Zero bytes sent. Closing socket.\n");
             close(client_socket);
 	        pthread_exit(0);
@@ -30,17 +30,20 @@ void* client_runner(void* arg) {
         }
 
         strip_string(buffer);
+        if (strlen(buffer) <= 0) {
+            continue;
+        }
+
         if (is_name_free(buffer)) {
-            user.name = buffer;
+            strcpy(user.name, buffer);
             STATUS status = save_client(&user);
             if (status == SUCCESS) {
                 bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK), DEFAULT_FLAGS);
-                if (bytes_sent =< 0) {
+                if (bytes_sent <= 0) {
                     perror("Zero bytes sent. Closing socket.\n");
                     close(client_socket);
                     pthread_exit(0);
                 }
-                printf("User connected with name: %s\n", user.name);
                 break;
             } else {
                 close(client_socket);
@@ -53,12 +56,15 @@ void* client_runner(void* arg) {
 
     while (TRUE) {
         bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
+        strip_string(buffer);
+        printf("Bytes received: %d\n", (int)bytes_received);
         if (bytes_received <= 0) {
+            printf("Client left. Exiting thread...\n");
             break;
         }
         char message[BUFFER_SIZE];
-        snprintf(message, BUFFER_SIZE, "PRANESIMAS%s: %s", user.name, buffer);
-        puts(message);
+        snprintf(message, BUFFER_SIZE, "PRANESIMAS%s: %s\n", user.name, buffer);
+        printf("%s\n", message);
         send_to_all_clients(message);
     }
 
@@ -69,8 +75,8 @@ void* client_runner(void* arg) {
 int main() {
     
     // get port from the user
-    char port_buffer[7];
-    get_server_port("Enter server port to listen: ", port_buffer);
+    char port_buffer[7] = "8000";
+    // get_server_port("Enter server port to listen: ", port_buffer);
 
     struct addrinfo hints;
     memset(&hints, 0, sizeof hints);
@@ -141,6 +147,7 @@ int main() {
         *socket_ptr = client_socket;
 
         if (is_room_full()) {
+            printf("Chat room is full. Closing socket.\n");
             // possible to send Error message to client
             close(client_socket);
             continue;

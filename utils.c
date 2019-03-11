@@ -20,16 +20,19 @@ void uppercase(char* string, int length) {
 }
 
 STATUS save_client(connected_user *user) {
+    STATUS status = ERROR;
+
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (connected_users[i] == NULL) {
             connected_users[i] = user;
-            return SUCCESS;
+            status = SUCCESS;
+            break;
         }
     }
     pthread_mutex_unlock(&mutex);
-
-    return ERROR;
+    
+    return status;
 }
 
 BOOL is_room_full() {
@@ -47,18 +50,20 @@ BOOL is_room_full() {
 }
 
 BOOL is_name_free(char* name) {
+    BOOL is_free = TRUE;
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         connected_user* cu = connected_users[i];
         if (cu != NULL) {
             if (strncmp(cu->name, name, BUFFER_SIZE) == 0) {
-                return FALSE;
+                is_free = FALSE;
+                break;
             }
         }
     }
     pthread_mutex_unlock(&mutex);
 
-    return TRUE;
+    return is_free;
 }
 
 STATUS send_to_all_clients(char* message) {
@@ -68,10 +73,10 @@ STATUS send_to_all_clients(char* message) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         connected_user* user = connected_users[i];
         if (user != NULL) {
-            bytes_sent = send(client_socket, message, sizeof(message), DEFAULT_FLAGS);
-            if (bytes_sent =< 0) {
+            bytes_sent = send(user->socket_descriptor, message, strlen(message), DEFAULT_FLAGS);
+            if (bytes_sent <= 0) {
                 perror("Zero bytes sent. Closing socket.\n");
-                close(client_socket);
+                close(user->socket_descriptor);
                 pthread_exit(0);
             }
         }

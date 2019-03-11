@@ -31,11 +31,11 @@ typedef int STATUS;
 
 typedef struct connected_user {
     int socket_descriptor;
-    char* name;
+    char name[BUFFER_SIZE];
 } connected_user;
 
-static const char* PROTOCOL_MESSAGE_GET_NAME = "ATSIUSKVARDA\n";
-static const char* PROTOCOL_MESSAGE_NAME_OK = "VARDASOK\n";
+static const char PROTOCOL_MESSAGE_GET_NAME[] = "ATSIUSKVARDA\n";
+static const char PROTOCOL_MESSAGE_NAME_OK[] = "VARDASOK\n";
 
 void strip_string(char* str);
 
@@ -48,5 +48,7 @@ STATUS save_client(connected_user *user);
 BOOL is_name_free(char* name);
 
 BOOL is_room_full();
+
+STATUS send_to_all_clients(char* message);
 
 #endif
