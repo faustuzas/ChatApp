@@ -1,47 +1,35 @@
 #include "utils.h"
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-
-void* client_runner(void* arg)
-{
-    char buffer[BUFFER_SIZE] = { 0 };
+void* client_runner(void* arg) {
 	int client_socket = *(int*) arg;
+    free(arg);
+
+    char buffer[BUFFER_SIZE] = { 0 };
     connected_user user;
     user.socket_descriptor = client_socket;
 
     // get user name
     while (TRUE) {
-        ssize_t bytes_sent = send(client_socket, PROTOCAL_MESSAGE_GET_NAME, sizeof(PROTOCAL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
+        ssize_t bytes_sent = send(client_socket, PROTOCOL_MESSAGE_GET_NAME, sizeof(PROTOCOL_MESSAGE_GET_NAME), DEFAULT_FLAGS);
 
         if (bytes_sent < 0) {
             close(client_socket);
 	        pthread_exit(0);
         }
 
-        ssize_t bytes_recevied = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
-        if (bytes_recevied <= 0) {
+        ssize_t bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
+        if (bytes_received <= 0) {
+            perror("Zero bytes received. Closing socket.\n");
             close(client_socket);
             pthread_exit(0);
         }
 
-        BOOL name_is_taken = FALSE;
-        for (int i = 0; i < MAX_CLIENTS; ++i) {
-            connected_user cu = connected_users[i];
-            if (connected_user != NULL) {
-                if (strcmp(cu.name, buffer) == 0) {
-                    name_is_taken = TRUE;
-                    break;
-                }
-            }
-        }
-
-        if (name_is_taken) {
-            continue;
-        } else {
+        strip_string(buffer);
+        if (is_name_free(buffer)) {
             user.name = buffer;
             STATUS status = save_client(&user);
-            if (STATUS == SUCCESS) {
-                printf("User connected with name: %s", user.name);
+            if (status == SUCCESS) {
+                printf("User connected with name: %s\n", user.name);
                 break;
             } else {
                 close(client_socket);
@@ -50,7 +38,7 @@ void* client_runner(void* arg)
         }
     }
 
-    printf("Ready for communication");
+    printf("Ready for communication\n");
 
     // recv(client_socket, &client_message, sizeof(client_message), 0);
 
@@ -93,20 +81,20 @@ int main() {
     for(info_node = server_info; info_node != NULL; info_node = info_node->ai_next) {
         if ((server_socket = socket(info_node->ai_family, info_node->ai_socktype,
                 info_node->ai_protocol)) == -1) {
-            perror("server: socket");
+            perror("Error while creating server socket\n");
             continue;
         }
 
         int yes = 1;
         if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes,
                 sizeof(int)) == -1) {
-            perror("setsockopt");
+            perror("Error while setting socket options\n");
             exit(1);
         }
 
         if (bind(server_socket, info_node->ai_addr, info_node->ai_addrlen) == -1) {
             close(server_socket);
-            perror("server: bind");
+            perror("Error while binding socket\n");
             continue;
         }
 
@@ -127,19 +115,39 @@ int main() {
         exit(1);
     }
 
-    pthreads_t thread_ids[MAX_CLIENTS];
     while (TRUE) {
         int client_socket = accept(server_socket, NULL, NULL);
-        if (client_socket =< 0) {
-            perror("Error while accepting connection");
+        if (client_socket <= 0) {
+            perror("Error while accepting connection\n");
             break;
         }
 
-		pthread_create(&thread_ids[i], NULL, sum_runner, &client_socket);
-    }
+        int *socket_ptr = malloc(sizeof(int));
+        if (socket_ptr == NULL) {
+            perror("Error while allocating memory\n");
+            close(client_socket);
+            break;
+        }
+        *socket_ptr = client_socket;
 
-    for (int i = 0; i < MAX_CLIENTS; ++i) {
-        pthread_join(thread_ids[i], NULL);
+        if (is_room_full()) {
+            // possible to send Error message to client
+            close(client_socket);
+            continue;
+        }
+
+        pthread_t thread_id;
+        if (pthread_create(&thread_id, NULL, client_runner, socket_ptr) != 0) {
+            perror("Error while creating thread\n");
+            close(client_socket);
+            break;
+        }
+
+        if (pthread_detach(thread_id) != 0) {
+            perror("Error while detaching thread\n");
+            close(client_socket);
+            break;
+        }
     }
 
     // close socket
