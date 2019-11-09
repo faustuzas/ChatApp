@@ -1,7 +1,7 @@
 CC 	   = gcc
 CFLAGS = -g -Wall
-SRC    = main.c utils.c
+SRC    = main.c
 OBJS   = $(SRC:.c=.o)
 
 main: $(OBJS)
-	$(CC) $(OBJS) -g -o server
+	$(CC) $(OBJS) -g -o client

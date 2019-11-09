@@ -1,84 +1,18 @@
 #include "utils.h"
-#include "clients.h"
 
+#include <string.h> 
 #include <ctype.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-// #include <netinet/in.h>
+#include <netinet/in.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
-void* client_runner(void* arg) {
-	int client_socket = *(int*) arg;
-    free(arg);
-
-    char buffer[BUFFER_SIZE] = { 0 };
-
-    ssize_t bytes_sent;
-    ssize_t bytes_received;
-
-    connected_user user;
-    user.socket_descriptor = client_socket;
-
-    // get user name
-    while (true) {
-        bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_GET, sizeof(PROTOCOL_MESSAGE_NAME_GET), DEFAULT_FLAGS);
-
-        if (bytes_sent <= 0) {
-            perror("Zero bytes sent. Closing socket.\n");
-            close(client_socket);
-	        pthread_exit(0);
-        }
-
-        bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
-        if (bytes_received <= 0) {
-            perror("Zero bytes received. Closing socket.\n");
-            close(client_socket);
-            pthread_exit(0);
-        }
-
-        strip_string(buffer);
-        if (strlen(buffer) <= 0) {
-            continue;
-        }
-
-        if (is_name_free(buffer)) {
-            strcpy(user.name, buffer);
-            Status status = save_client(&user);
-            if (status == SUCCESS) {
-                bytes_sent = send(client_socket, PROTOCOL_MESSAGE_NAME_OK, sizeof(PROTOCOL_MESSAGE_NAME_OK) - 1, DEFAULT_FLAGS);
-                if (bytes_sent <= 0) {
-                    perror("Zero bytes sent. Closing socket.\n");
-                    remove_client(&user);
-                    pthread_exit(0);
-                }
-                break;
-            } else {
-                remove_client(&user);
-	            pthread_exit(0);
-            }
-        }
-    }
-
-    printf("User %s ready for communication\n", user.name);
-
-    while (true) {
-        bytes_received = recv(client_socket, &buffer, sizeof(buffer), DEFAULT_FLAGS);
-        strip_string(buffer);
-        if (bytes_received <= 0) {
-            printf("Client left. Exiting thread...\n");
-            break;
-        }
-        char message[BUFFER_SIZE];
-        snprintf(message, BUFFER_SIZE, "PRANESIMAS%s: %s\n", user.name, buffer);
-        send_to_all_clients(message);
-    }
-
-    remove_client(&user);
-	pthread_exit(0);
-}
+#define MAX_CLIENTS 10
+#define BUFF_SIZE 512
 
 int main() {
     char port_buffer[7];
@@ -138,36 +72,36 @@ int main() {
     /**
      * Iterate throught returned list and create and configure a server socket
      */ 
-    int server_socket;
+    int server_socket_fd;
     struct addrinfo *info_node;
     for(info_node = server_info; info_node != NULL; info_node = info_node->ai_next) {
         /**
          * Create a socket for communication from given arguments and return its descriptor
          */ 
-        server_socket = socket(info_node->ai_family, info_node->ai_socktype, info_node->ai_protocol);
-        if (server_socket == -1) {
+        server_socket_fd = socket(info_node->ai_family, info_node->ai_socktype, info_node->ai_protocol);
+        if (server_socket_fd == -1) {
             perror("Error while creating server socket\n");
             continue;
         }
 
         /**
-         * Set options on socket.
+         * Set options on a socket.
          * 
-         * SOL_SOCKET - level where should options be applied. In this case socket level.
+         * SOL_SOCKET - level where options should be applied. In this case socket level.
          * SO_REUSEADDR - allow to reuse local addresses
          */ 
         int yes = 1;
-        if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-            close(server_socket);
+        if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+            close(server_socket_fd);
             perror("Error while setting socket options\n");
             exit(1);
         }
 
         /**
-         * Assign a local protocol address to socket
+         * Assign a local protocol address to the socket
          */
-        if (bind(server_socket, info_node->ai_addr, info_node->ai_addrlen) == -1) {
-            close(server_socket);
+        if (bind(server_socket_fd, info_node->ai_addr, info_node->ai_addrlen) == -1) {
+            close(server_socket_fd);
             perror("Error while binding socket\n");
             continue;
         }
@@ -187,59 +121,94 @@ int main() {
 
     /**
      * Specify the willingness to accept incoming connections
-     * and set the waiting queue limit for waiting connections.
+     * and set the waiting queue limit.
      */
-    if (listen(server_socket, MAX_CLIENTS) == -1) {
+    if (listen(server_socket_fd, MAX_CLIENTS) == -1) {
         perror("Error while listening\n");
-        close(server_socket);
+        close(server_socket_fd);
         exit(1);
     }
 
     printf("Server is listening on port %s\n", port_buffer);
 
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+
+    int* client_sockets[MAX_CLIENTS] = { NULL }; 
+
+    char buff[BUFFER_SIZE];
+
     while (true) {
-        /**
-         * 
-         */
-        int client_socket = accept(server_socket, NULL, NULL);
-        if (client_socket <= 0) {
-            perror("Error while accepting connection\n");
-            break;
+        FD_SET(server_socket_fd, &read_fds);
+
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            if (client_sockets[i] == NULL) {
+                continue;
+            }
+
+            FD_SET(*client_sockets[i], &read_fds);
         }
 
-        printf("New client connected\n");
-
-        int *socket_ptr = malloc(sizeof(int));
-        if (socket_ptr == NULL) {
-            perror("Error while allocating memory\n");
-            close(client_socket);
-            break;
-        }
-        *socket_ptr = client_socket;
-
-        if (is_room_full()) {
-            printf("Chat room is full. Closing socket.\n");
-            // possible to send Error message to client
-            close(client_socket);
+        // refactor to not use FD_SETSIZE
+        if (select(FD_SETSIZE, &read_fds, NULL, NULL, NULL) == 0) {
             continue;
         }
 
-        pthread_t thread_id;
-        if (pthread_create(&thread_id, NULL, client_runner, socket_ptr) != 0) {
-            perror("Error while creating thread\n");
-            close(client_socket);
-            break;
+        if (FD_ISSET(server_socket_fd, &read_fds)) {
+            int client_socket = accept(server_socket_fd, NULL, NULL);
+            if (client_socket <= 0) {
+                perror("Error while accepting connection\n");
+                break;
+            }
+
+            for (int i = 0; i < MAX_CLIENTS; ++i) {
+                if (client_sockets[i] == NULL) {
+                    client_sockets[i] = &client_socket;
+                    break;
+                }
+            }
+
+            printf("New client connected\n");
         }
 
-        if (pthread_detach(thread_id) != 0) {
-            perror("Error while detaching thread\n");
-            close(client_socket);
-            break;
+        for (int i = 0; i < MAX_CLIENTS; ++i) {
+            if (client_sockets[i] == NULL) {
+                continue;
+            }
+
+            int client_socket = *client_sockets[i];
+            if (!FD_ISSET(client_socket, &read_fds)) {
+                continue;
+            }
+
+            if (recv(client_socket, &buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
+                close(client_socket);
+                client_sockets[i] = NULL;
+                continue;
+            }
+
+            printf("Received message: %s\n", buff);
+
+            for (int i = 0; i < MAX_CLIENTS; ++i) {
+                // if (client_sockets[i] == NULL || *client_sockets[i] == client_socket) {
+                if (client_sockets[i] == NULL) {
+                    continue;
+                }
+
+                if (send(*client_sockets[i], buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
+                    perror("Error while sending\n");
+                    close(*client_sockets[i]);
+                    client_sockets[i] = NULL;
+                    continue;
+                } else {
+                    printf("Message sent\n");
+                }
+            }
         }
     }
 
     // close socket
-    close(server_socket);
+    close(server_socket_fd);
 
     return 0;
 }
