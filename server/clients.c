@@ -1,26 +1,12 @@
-#include "utils.h"
+#include "clients.h"
+
+#include <pthread.h>
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-connected_user *connected_users[MAX_CLIENTS] = { NULL };
+connected_user* connected_users[MAX_CLIENTS] = { NULL };
 
-void strip_string(char* str) {
-    str[strcspn(str, "\n")] = 0;
-}
-
-void get_server_port(char* message, char* port_buffer) {
-    puts(message);
-    fgets(port_buffer, sizeof port_buffer, stdin);
-    strip_string(port_buffer);
-}
-
-void uppercase(char* string, int length) {
-    for (int i = 0; i < length; ++i) {
-        string[i] = toupper(string[i]);
-    }
-}
-
-STATUS save_client(connected_user *user) {
-    STATUS status = ERROR;
+Status save_client(connected_user *user) {
+    Status status = ERROR;
 
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
@@ -47,7 +33,7 @@ void remove_client(connected_user *user) {
     pthread_mutex_unlock(&mutex);
 }
 
-BOOL is_room_full() {
+bool is_room_full() {
     int places_occupied = 0;
 
     pthread_mutex_lock(&mutex);
@@ -61,14 +47,14 @@ BOOL is_room_full() {
     return places_occupied == MAX_CLIENTS;
 }
 
-BOOL is_name_free(char* name) {
-    BOOL is_free = TRUE;
+bool is_name_free(char* name) {
+    bool is_free = true;
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         connected_user* cu = connected_users[i];
         if (cu != NULL) {
             if (strncmp(cu->name, name, BUFFER_SIZE) == 0) {
-                is_free = FALSE;
+                is_free = false;
                 break;
             }
         }
@@ -78,7 +64,7 @@ BOOL is_name_free(char* name) {
     return is_free;
 }
 
-STATUS send_to_all_clients(char* message) {
+Status send_to_all_clients(char* message) {
     ssize_t bytes_sent;
 
     pthread_mutex_lock(&mutex);
