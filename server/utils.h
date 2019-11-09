@@ -11,12 +11,10 @@ typedef int Status;
 #define SUCCESS 1
 #define ERROR 0
 
-void strip_string(char* str);
+int get_server_port();
 
-void get_server_port(char* message, char* port_buffer);
+void print_greeting();
 
-void uppercase(char* string, int length);
-
-int next_index(int* array, int size);
+int next_index(int* array[], int size);
 
 #endif

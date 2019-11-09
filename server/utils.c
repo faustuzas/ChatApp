@@ -3,23 +3,31 @@
 #include <strings.h>
 #include <stdio.h> 
 
-void strip_string(char* str) {
-    str[strcspn(str, "\n")] = '\0';
+void print_greeting() {
+    printf("******************************\n");
+    printf("*   Welcome to chat server   *\n");
+    printf("******************************\n\n");
 }
 
-void get_server_port(char* message, char* buff, size_t buff_size) {
-    puts(message);
-    fgets(buff, buff_size, stdin);
-    strip_string(buff);
-}
+int get_server_port() {
+    int port;
 
-void uppercase(char* string, int length) {
-    for (int i = 0; i < length; ++i) {
-        string[i] = toupper(string[i]);
+    while(true) {
+        printf("Enter port server to listen to: ");
+        if (scanf("%d", &port) == 1) {
+            break;
+        }
+
+        // clear stdout
+        while(getchar() != '\n') ;
+
+        printf("Please enter only port number.\n");
     }
+
+    return port;
 }
 
-int next_index(int* array, int size) {
+int next_index(int* array[], int size) {
     for (int i = 0; i < size; ++i) {
         if (array[i] == NULL) {
             return i;

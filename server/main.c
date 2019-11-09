@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <signal.h>
+
 #include <netinet/in.h>
 #include <netdb.h>
 #include <sys/types.h>
@@ -13,34 +15,36 @@
 
 #define MAX_CLIENTS 10
 #define CONNECTION_QUEUE_SIZE 5
-#define BUFF_SIZE 512
+#define BUFF_SIZE 1024
 
-char* buff;
+char buff[BUFF_SIZE];
+
+int server_fd;
 int* client_fds[MAX_CLIENTS] = { NULL };
 
-Status accept_connection(int server_fd) {
+int accept_connection(int server_fd) {
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd <= 0) {
         perror("Error while accepting a connection\n");
-        return ERROR;
+        return -1;
     }
 
     int next_i = next_index(client_fds, MAX_CLIENTS);
     if (next_i == -1) {
-        printf("Only %d clients can connect simultaneously.\n");
-        return;
+        printf("Only %d clients can connect simultaneously.\n", MAX_CLIENTS);
+        return -1;
     }
 
-    int* fd_ptr = malloc(sizeof(int*));
+    int* fd_ptr = malloc(sizeof(int));
     if (fd_ptr == NULL) {
         perror("Failed allocating memory.\n");
-        return ERROR;
+        return -1;
     }
 
     *fd_ptr = client_fd;
     client_fds[next_i] = fd_ptr;
 
-    return SUCCESS;
+    return client_fd;
 }
 
 void register_client_read_handlers(fd_set* set) {
@@ -53,34 +57,64 @@ void register_client_read_handlers(fd_set* set) {
     }
 }
 
+void close_socket(int socket) {
+    shutdown(socket, SHUT_WR);
+    close(socket);
+}
+
 void close_client_socket(int socket) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (client_fds[i] == NULL || *client_fds[i] != socket) {
             continue;
         }
 
-        shutdown(socket);
-        close(socket);
+        close_socket(socket);
 
         free(client_fds[i]);
         client_fds[i] = NULL;
     }
 }
 
-void publish_message(int sender) {
+void close_all_client_sockets() {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-    // if (client_sockets[i] == NULL || *client_sockets[i] == sender) {
         if (client_fds[i] == NULL) {
             continue;
         }
+        
+        close_socket(*client_fds[i]);
 
-        if (send(*client_sockets[i], buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
+        free(client_fds[i]);
+        client_fds[i] = NULL;
+    }
+}
+
+void publish_message(int sender, char* message) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (client_fds[i] == NULL /*|| *client_fds[i] == sender*/) {
+            continue;
+        }
+
+        if (send(*client_fds[i], message, strlen(message), DEFAULT_FLAGS) == -1) {
             perror("Error while sending\n");
-            close_client_socket(*client_sockets[i]);
-        } else {
-            printf("Message sent\n");
+            close_client_socket(*client_fds[i]);
         }
     }
+}
+
+void signal_handler(int sig) {
+    close_socket(server_fd);
+    close_all_client_sockets();
+
+    exit(0);
+}
+
+void init_signal_handlers() {
+    struct sigaction sa;
+
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    
+    sigaction(SIGINT, &sa, NULL);
 }
 
 void e_exit(char* message) {
@@ -89,134 +123,54 @@ void e_exit(char* message) {
 }
 
 int main() {
-    if ((buff = malloc(sizeof(char) * BUFF_SIZE)) == NULL) {
-        e_exit("Unable to allocate memory for the buffer.\n");
+    init_signal_handlers();
+
+    print_greeting();
+
+    server_fd = socket(AF_INET, SOCK_STREAM, DEFAULT_FLAGS);
+    if (server_fd <= 0) {
+        e_exit("Socket creation failed");
     }
 
-    get_server_port("Enter server port to listen: ", buff, BUFF_SIZE);
+    int port = get_server_port();
 
-    /**
-     * Struct which hints the details of address you are trying to find
-     */
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof hints);
+    struct sockaddr_in servaddr; 
+    bzero(&servaddr, sizeof(servaddr));
 
-    /**
-     * Protocol family that should be used.
-     * 
-     * AF_UNSPEC - any family supported by the OS.
-     */
-    hints.ai_family = AF_UNSPEC;
+    servaddr.sin_family = AF_INET; 
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
+    servaddr.sin_port = htons(port); 
 
-    /**
-     * Type of socket that is wanted.
-     * 
-     * SOCK_STREAM - connection-based protocal type. 
-     * The connection has to be established between two parties to communicate.
-     * Is used alongside TCP protocol.
-     * 
-     * SOCK_DGRAM - datagram-based protocol type.
-     * No connection needed. You just "throw" the data into the receiver and hope it gets it.
-     * Is used alongside UDP protocol.
-     */
-    hints.ai_socktype = SOCK_STREAM;
-
-    /**
-     * Structure that returned address should corespond to.
-     * 
-     * AI_PASSIVE - indicates that returned socket address structure is intended for use in a call to bind(). 
-     */
-    hints.ai_flags = AI_PASSIVE;
-
-    /**
-     * Struct which will hold the returned socket address
-     */ 
-    struct addrinfo *server_info;
-
-    /**
-     * Gets a list of IP addresses and port numbers from provided hostname and port.
-     * 
-     * First parameter (hostname) is NULL because this will be a server socket.
-     */
-    int addrinfo_status = getaddrinfo(NULL, port_buffer, &hints, &server_info);
-    if (addrinfo_status != 0) {
-        e_exit("Error while getaddrinfo\n");
+    if (bind(server_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1) {
+        e_exit("Socket binding failed");
     }
-
-    /**
-     * Iterate throught returned list and create and configure a server socket
-     */ 
-    int server_socket_fd;
-    struct addrinfo *info_node;
-    for(info_node = server_info; info_node != NULL; info_node = info_node->ai_next) {
-        /**
-         * Create a socket for communication from given arguments and return its descriptor
-         */ 
-        server_socket_fd = socket(info_node->ai_family, info_node->ai_socktype, info_node->ai_protocol);
-        if (server_socket_fd == -1) {
-            perror("Error while creating server socket\n");
-            continue;
-        }
-
-        /**
-         * Set options on a socket.
-         * 
-         * SOL_SOCKET - level where options should be applied. In this case socket level.
-         * SO_REUSEADDR - allow to reuse local addresses
-         */ 
-        int yes = 1;
-        if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-            close(server_socket_fd);
-            perror("Error while setting socket options\n");
-            continue;
-        }
-
-        /**
-         * Assign a local protocol address to the socket
-         */
-        if (bind(server_socket_fd, info_node->ai_addr, info_node->ai_addrlen) == -1) {
-            close(server_socket_fd);
-            perror("Error while binding socket\n");
-            continue;
-        }
-
-        break;
-    }
-
-    if (info_node == NULL)  {
-        e_exit("Error while creating and configuring the socket\n");
-    }
-
-    /**
-     * Free addrinfo structure and all underlying pointers 
-     */
-    freeaddrinfo(server_info);
 
     /**
      * Specify the willingness to accept incoming connections
      * and set the waiting queue limit.
      */
-    if (listen(server_socket_fd, CONNECTION_QUEUE_SIZE) == -1) {
-        close(server_socket_fd);
+    if (listen(server_fd, CONNECTION_QUEUE_SIZE) == -1) {
+        close(server_fd);
         e_exit("Error while listening\n");
     }
 
-    printf("Server is listening on port %s\n", port_buffer);
+    printf("Server is listening on port %d\n", port);
 
     fd_set read_fds;
     FD_ZERO(&read_fds);
 
     while (true) {
-        FD_SET(server_socket_fd, &read_fds);
+        FD_SET(server_fd, &read_fds);
         register_client_read_handlers(&read_fds);
 
         if (select(FD_SETSIZE, &read_fds, NULL, NULL, NULL) == 0) {
             continue;
         }
 
-        if (FD_ISSET(server_socket_fd, &read_fds)) {
-            if (accept_connection(server_socket_fd) == SUCCESS) {
-                printf("New client connected.\n");
+        if (FD_ISSET(server_fd, &read_fds)) {
+            int new_client = accept_connection(server_fd);
+            if (new_client > 0) {
+                printf("New client connected!\n");
             }
         }
 
@@ -230,18 +184,16 @@ int main() {
                 continue;
             }
 
-            if (recv(client_socket, &buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
+            bzero(buff, BUFF_SIZE);
+            int received_bytes = recv(client_socket, &buff, BUFF_SIZE, DEFAULT_FLAGS);
+            if (received_bytes <= 0) {
                 close_client_socket(client_socket);
+                printf("Closing client socket...\n");
                 continue;
             }
 
             printf("Received message: %s\n", buff);
-            publish_message(client_socket, &buff, BUFF_SIZE);
+            publish_message(client_socket, buff);
         }
     }
-
-    // close socket
-    close(server_socket_fd);
-
-    return 0;
 }
