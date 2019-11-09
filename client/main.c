@@ -39,13 +39,25 @@ int main()
         return 1;
     }
 
-    memset(buffer, 0, sizeof(buffer)); 
-    strcpy(buffer, "Hello Server"); 
-    printf("Sending message...\n");
-    write(sockfd, buffer, sizeof(buffer)); 
-    printf("Sent message\n");
-    printf("Message from server: "); 
-    read(sockfd, buffer, sizeof(buffer)); 
-    puts(buffer); 
-    close(sockfd); 
+    char buff[MAX]; 
+    int n; 
+    for (;;) { 
+        bzero(buff, sizeof(buff)); 
+        printf("Enter the string : "); 
+        n = 0; 
+        while ((buff[n++] = getchar()) != '\n') 
+            ; 
+
+            
+        send(sockfd, buff, sizeof(buff)); 
+        bzero(buff, sizeof(buff)); 
+        read(sockfd, buff, sizeof(buff)); 
+        printf("From Server : %s", buff); 
+
+        
+        if ((strncmp(buff, "exit", 4)) == 0) { 
+            printf("Client Exit...\n"); 
+            break; 
+        } 
+    } 
 } 

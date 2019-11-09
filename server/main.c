@@ -12,13 +12,88 @@
 #include <sys/socket.h>
 
 #define MAX_CLIENTS 10
+#define CONNECTION_QUEUE_SIZE 5
 #define BUFF_SIZE 512
 
-int main() {
-    char port_buffer[7];
+char* buff;
+int* client_fds[MAX_CLIENTS] = { NULL };
 
-    // TODO: Port validation
-    get_server_port("Enter server port to listen: ", port_buffer);
+Status accept_connection(int server_fd) {
+    int client_fd = accept(server_fd, NULL, NULL);
+    if (client_fd <= 0) {
+        perror("Error while accepting a connection\n");
+        return ERROR;
+    }
+
+    int next_i = next_index(client_fds, MAX_CLIENTS);
+    if (next_i == -1) {
+        printf("Only %d clients can connect simultaneously.\n");
+        return;
+    }
+
+    int* fd_ptr = malloc(sizeof(int*));
+    if (fd_ptr == NULL) {
+        perror("Failed allocating memory.\n");
+        return ERROR;
+    }
+
+    *fd_ptr = client_fd;
+    client_fds[next_i] = fd_ptr;
+
+    return SUCCESS;
+}
+
+void register_client_read_handlers(fd_set* set) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (client_fds[i] == NULL) {
+            continue;
+        }
+
+        FD_SET(*client_fds[i], set);
+    }
+}
+
+void close_client_socket(int socket) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (client_fds[i] == NULL || *client_fds[i] != socket) {
+            continue;
+        }
+
+        shutdown(socket);
+        close(socket);
+
+        free(client_fds[i]);
+        client_fds[i] = NULL;
+    }
+}
+
+void publish_message(int sender) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+    // if (client_sockets[i] == NULL || *client_sockets[i] == sender) {
+        if (client_fds[i] == NULL) {
+            continue;
+        }
+
+        if (send(*client_sockets[i], buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
+            perror("Error while sending\n");
+            close_client_socket(*client_sockets[i]);
+        } else {
+            printf("Message sent\n");
+        }
+    }
+}
+
+void e_exit(char* message) {
+    perror(message);
+    exit(-1);
+}
+
+int main() {
+    if ((buff = malloc(sizeof(char) * BUFF_SIZE)) == NULL) {
+        e_exit("Unable to allocate memory for the buffer.\n");
+    }
+
+    get_server_port("Enter server port to listen: ", buff, BUFF_SIZE);
 
     /**
      * Struct which hints the details of address you are trying to find
@@ -65,8 +140,7 @@ int main() {
      */
     int addrinfo_status = getaddrinfo(NULL, port_buffer, &hints, &server_info);
     if (addrinfo_status != 0) {
-        fprintf(stderr, "Error while getaddrinfo: %s\n", gai_strerror(addrinfo_status));
-        exit(1);
+        e_exit("Error while getaddrinfo\n");
     }
 
     /**
@@ -94,7 +168,7 @@ int main() {
         if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
             close(server_socket_fd);
             perror("Error while setting socket options\n");
-            exit(1);
+            continue;
         }
 
         /**
@@ -110,8 +184,7 @@ int main() {
     }
 
     if (info_node == NULL)  {
-        perror("Error while creating and configuring the socket\n");
-        exit(1);
+        e_exit("Error while creating and configuring the socket\n");
     }
 
     /**
@@ -123,10 +196,9 @@ int main() {
      * Specify the willingness to accept incoming connections
      * and set the waiting queue limit.
      */
-    if (listen(server_socket_fd, MAX_CLIENTS) == -1) {
-        perror("Error while listening\n");
+    if (listen(server_socket_fd, CONNECTION_QUEUE_SIZE) == -1) {
         close(server_socket_fd);
-        exit(1);
+        e_exit("Error while listening\n");
     }
 
     printf("Server is listening on port %s\n", port_buffer);
@@ -134,76 +206,37 @@ int main() {
     fd_set read_fds;
     FD_ZERO(&read_fds);
 
-    int* client_sockets[MAX_CLIENTS] = { NULL }; 
-
-    char buff[BUFFER_SIZE];
-
     while (true) {
         FD_SET(server_socket_fd, &read_fds);
+        register_client_read_handlers(&read_fds);
 
-        for (int i = 0; i < MAX_CLIENTS; ++i) {
-            if (client_sockets[i] == NULL) {
-                continue;
-            }
-
-            FD_SET(*client_sockets[i], &read_fds);
-        }
-
-        // refactor to not use FD_SETSIZE
         if (select(FD_SETSIZE, &read_fds, NULL, NULL, NULL) == 0) {
             continue;
         }
 
         if (FD_ISSET(server_socket_fd, &read_fds)) {
-            int client_socket = accept(server_socket_fd, NULL, NULL);
-            if (client_socket <= 0) {
-                perror("Error while accepting connection\n");
-                break;
+            if (accept_connection(server_socket_fd) == SUCCESS) {
+                printf("New client connected.\n");
             }
-
-            for (int i = 0; i < MAX_CLIENTS; ++i) {
-                if (client_sockets[i] == NULL) {
-                    client_sockets[i] = &client_socket;
-                    break;
-                }
-            }
-
-            printf("New client connected\n");
         }
 
         for (int i = 0; i < MAX_CLIENTS; ++i) {
-            if (client_sockets[i] == NULL) {
+            if (client_fds[i] == NULL) {
                 continue;
             }
 
-            int client_socket = *client_sockets[i];
+            int client_socket = *client_fds[i];
             if (!FD_ISSET(client_socket, &read_fds)) {
                 continue;
             }
 
             if (recv(client_socket, &buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
-                close(client_socket);
-                client_sockets[i] = NULL;
+                close_client_socket(client_socket);
                 continue;
             }
 
             printf("Received message: %s\n", buff);
-
-            for (int i = 0; i < MAX_CLIENTS; ++i) {
-                // if (client_sockets[i] == NULL || *client_sockets[i] == client_socket) {
-                if (client_sockets[i] == NULL) {
-                    continue;
-                }
-
-                if (send(*client_sockets[i], buff, BUFF_SIZE, DEFAULT_FLAGS) == -1) {
-                    perror("Error while sending\n");
-                    close(*client_sockets[i]);
-                    client_sockets[i] = NULL;
-                    continue;
-                } else {
-                    printf("Message sent\n");
-                }
-            }
+            publish_message(client_socket, &buff, BUFF_SIZE);
         }
     }
 
