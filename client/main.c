@@ -11,13 +11,11 @@
 
 #include <arpa/inet.h>
 
-#define PORT 5000 
+#define PORT 5000
 #define MAXLINE 512 
 
-int main() 
-{ 
-    int sockfd; 
-    char buffer[MAXLINE]; 
+int main() { 
+    int sockfd;
     struct sockaddr_in servaddr; 
   
     // Creating socket file descriptor 
@@ -39,7 +37,7 @@ int main()
         return 1;
     }
 
-    char buff[MAX]; 
+    char buff[MAXLINE]; 
     int n; 
     for (;;) { 
         bzero(buff, sizeof(buff)); 
@@ -48,11 +46,11 @@ int main()
         while ((buff[n++] = getchar()) != '\n') 
             ; 
 
-            
-        send(sockfd, buff, sizeof(buff)); 
+        buff[n - 1] = '\0';    
+        send(sockfd, buff, strlen(buff), 0); 
         bzero(buff, sizeof(buff)); 
         read(sockfd, buff, sizeof(buff)); 
-        printf("From Server : %s", buff); 
+        printf("From Server : %s\n", buff); 
 
         
         if ((strncmp(buff, "exit", 4)) == 0) { 

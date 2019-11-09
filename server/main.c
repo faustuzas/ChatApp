@@ -22,6 +22,10 @@ char buff[BUFF_SIZE];
 int server_fd;
 int* client_fds[MAX_CLIENTS] = { NULL };
 
+/**
+ * Extracts first connection request from the queue of pending connections
+ * and create socket for it.
+ */ 
 int accept_connection(int server_fd) {
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd <= 0) {
@@ -47,6 +51,10 @@ int accept_connection(int server_fd) {
     return client_fd;
 }
 
+/**
+ * Add client sockets' file descriptors into read descriptors set
+ * which will be checked by select() function.
+ */
 void register_client_read_handlers(fd_set* set) {
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (client_fds[i] == NULL) {
@@ -58,7 +66,14 @@ void register_client_read_handlers(fd_set* set) {
 }
 
 void close_socket(int socket) {
-    shutdown(socket, SHUT_WR);
+    /**
+     * Disable writing and reading from the socket.
+     */
+    shutdown(socket, SHUT_RDWR);
+
+    /**
+     * Delete the socket's file descriptor.
+     */
     close(socket);
 }
 
@@ -94,6 +109,11 @@ void publish_message(int sender, char* message) {
             continue;
         }
 
+        /**
+         * Send provided message to the client.
+         * 
+         * If an error ocurred close the socket.
+         */
         if (send(*client_fds[i], message, strlen(message), DEFAULT_FLAGS) == -1) {
             perror("Error while sending\n");
             close_client_socket(*client_fds[i]);
@@ -101,6 +121,9 @@ void publish_message(int sender, char* message) {
     }
 }
 
+/**
+ * Signal handler function
+ */
 void signal_handler(int sig) {
     close_socket(server_fd);
     close_all_client_sockets();
@@ -108,6 +131,9 @@ void signal_handler(int sig) {
     exit(0);
 }
 
+/**
+ * Register the signal handlers. 
+ */
 void init_signal_handlers() {
     struct sigaction sa;
 
@@ -127,6 +153,20 @@ int main() {
 
     print_greeting();
 
+    /**
+     * Create a socket which will be used to listen for incoming connections.
+     * 
+     * AF_INET - an address family that is used to designate the type of addresses that the socket can communicate with.
+     * In this case its IPv4.
+     * 
+     * SOCK_STREAM - a connection-based protocal type. 	
+     * The connection has to be established between two parties to communicate.	
+     * Is used alongside TCP protocol.	
+     * 	
+     * SOCK_DGRAM - a datagram-based protocol type.	
+     * No connection needed. You just "throw" the data into the receiver and hope it gets it.	
+     * Is used alongside UDP protocol.	
+     */
     server_fd = socket(AF_INET, SOCK_STREAM, DEFAULT_FLAGS);
     if (server_fd <= 0) {
         e_exit("Socket creation failed");
@@ -134,13 +174,31 @@ int main() {
 
     int port = get_server_port();
 
+    /**
+     * Create and initialize a structure for holding internet address.
+     */
     struct sockaddr_in servaddr; 
     bzero(&servaddr, sizeof(servaddr));
 
+    /**
+     * Address family that the socket is going to bind for. 
+     * In this case IPv4.
+     */
     servaddr.sin_family = AF_INET; 
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
-    servaddr.sin_port = htons(port); 
 
+    /**
+     * Instruction to bind to ALL local network interfaces.
+     */
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
+
+    /**
+     * Convert the port bytes from host to network byte order and assign it to address. 
+     */
+    servaddr.sin_port = htons(port);
+
+    /**
+     * Assign a local protocol address to the socket.
+     */ 
     if (bind(server_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1) {
         e_exit("Socket binding failed");
     }
@@ -160,13 +218,26 @@ int main() {
     FD_ZERO(&read_fds);
 
     while (true) {
+        /**
+         * Add interesting file desctriptors into read descriptors set 
+         * which will be checked for activity by select() function.
+         */
         FD_SET(server_fd, &read_fds);
         register_client_read_handlers(&read_fds);
 
+        /**
+         * Check if there is any activity in given read descriptors set.
+         * 
+         * After function call descriptor set will contain only the descriptors
+         * which has some activity.
+         */
         if (select(FD_SETSIZE, &read_fds, NULL, NULL, NULL) == 0) {
             continue;
         }
 
+        /**
+         * Check if there was any activity in server socket.
+         */
         if (FD_ISSET(server_fd, &read_fds)) {
             int new_client = accept_connection(server_fd);
             if (new_client > 0) {
@@ -174,6 +245,9 @@ int main() {
             }
         }
 
+        /**
+         * Iterate throught client sockets' descriptors and check for activity.
+         */
         for (int i = 0; i < MAX_CLIENTS; ++i) {
             if (client_fds[i] == NULL) {
                 continue;
@@ -184,6 +258,9 @@ int main() {
                 continue;
             }
 
+            /**
+             * Because activity was detected in this socket, read from it.
+             */
             bzero(buff, BUFF_SIZE);
             int received_bytes = recv(client_socket, &buff, BUFF_SIZE, DEFAULT_FLAGS);
             if (received_bytes <= 0) {
@@ -193,6 +270,10 @@ int main() {
             }
 
             printf("Received message: %s\n", buff);
+
+            /**
+             * Publish the message received to other clients.
+             */
             publish_message(client_socket, buff);
         }
     }
