@@ -15,44 +15,22 @@
 
 #include <pthread.h>
 
+#include "utils.h"
+
 #define BUFF_SIZE 1024
 #define NAME_BUFF_SIZE 50
 
-#define PORT 5000
-
-#define true 1
-#define DEFAULT_FLAGS 0
+#define SERVER_HOST "127.0.0.1"
 
 int socket_fd = -1;
 
-char name_buff[50];
+char name_buff[NAME_BUFF_SIZE];
 char buff[BUFF_SIZE];
 
 pthread_t thread_id;
 
-void print_greeting() {
-    printf("\n************************************\n");
-    printf("*          Welcome to chat         *\n");
-    printf("************************************\n\n");
-}
-
 void ask_for_termination() {
     kill(getpid(), SIGINT);
-}
-
-void get_name() {
-    printf("Please enter your name: ");
-    fgets(name_buff, NAME_BUFF_SIZE, stdin);
-
-    int n = 0;
-    while (n < NAME_BUFF_SIZE) {
-        if (name_buff[n] == '\n') {
-            name_buff[n] = '\0';
-            break;
-        }
-
-        n++;
-    }
 }
 
 void close_socket() {
@@ -84,7 +62,7 @@ void* listening_runner(void* arg) {
  * Signal handler function
  */
 void signal_handler(int sig) {
-    printf("\nGood bye :)\n");
+    print_goodbye();
     
     close_socket();
 
@@ -105,11 +83,15 @@ void init_signal_handlers() {
     sigaction(SIGINT, &sa, NULL);
 }
 
+/**
+ * Prompt the user for input and format it into 
+ * message form: [<name>] <message>
+ * 
+ */
 void get_named_input() {
     bzero(buff, BUFF_SIZE); 
     printf(">");
 
-    // copy name into buffer
     int offset = 0;
     int name_len = strlen(name_buff);
     buff[offset++] = '[';
@@ -128,25 +110,48 @@ int main() {
 
     print_greeting();
 
-    get_name();
+    get_name(name_buff, NAME_BUFF_SIZE);
 
     printf("Hello, %s!\n", name_buff);
 
-    // Creating socket file descriptor
+    /**
+     * Create a socket which will be used to connect to the server.
+     */
     socket_fd = socket(AF_INET, SOCK_STREAM, DEFAULT_FLAGS);
     if (socket_fd < 0) { 
         perror("Error while creating a socket\n");
         exit(-1); 
     }
   
+    /**
+     * Create and initialize a structure for holding internet address.
+     */
     struct sockaddr_in servaddr;
     memset(&servaddr, 0, sizeof(servaddr)); 
+
+    int port = get_server_port();
   
-    // Filling server information 
+    /**
+     * Address family that the socket is going to bind for. 
+     * In this case IPv4.
+     */
     servaddr.sin_family = AF_INET; 
-    servaddr.sin_port = htons(PORT); 
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1"); 
+
+    /**
+     * Port which server is listening to.
+     */
+    servaddr.sin_port = htons(port); 
+
+    /**
+     * Convert internet address from the IPv4 format to binary form 
+     * in network byte order
+     */
+    servaddr.sin_addr.s_addr = inet_addr(SERVER_HOST); 
   
+
+    /**
+     * Create a connection between provided socket and the specified address.
+     */
     if (connect(socket_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) { 
         perror("Cannot connect to given server.\n");
         close_socket(); 
@@ -155,6 +160,9 @@ int main() {
 
     printf("Connected to server successfully!\n");    
 
+    /**
+     * Run a thread which will listen for incoming messages and print them.
+     */
     if (pthread_create(&thread_id, NULL, listening_runner, NULL) != 0) {
         perror("Error while creating a thread");
         close_socket(); 
