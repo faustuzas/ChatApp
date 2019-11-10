@@ -169,7 +169,7 @@ int main() {
         exit(-1);
     }
 
-    while(true) { 
+    while(true) {
         get_named_input();
 
         send(socket_fd, buff, strlen(buff), 0);

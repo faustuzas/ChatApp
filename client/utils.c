@@ -30,6 +30,8 @@ int get_server_port() {
         printf("Please enter only port number.\n");
     }
 
+    while(getchar() != '\n') ;
+
     return port;
 }
 
