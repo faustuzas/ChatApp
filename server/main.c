@@ -129,14 +129,15 @@ void publish_message(int sender, char* message) {
 void signal_handler(int sig) {
     print_goodbye();
 
-    printf("Connected clients: \n");
-
+    int connected_clients_count = 0;
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_fds[i] == NULL) {
-            continue;
+        if (client_fds[i] != NULL) {
+            ++connected_clients_count;
         }
+    }
 
-        printf("  * %d\n", *client_fds[i]);
+    if (connected_clients_count > 0) {
+        printf("There were %d still connected clients.\n");
     }
     
     close_socket(server_fd);
