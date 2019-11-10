@@ -137,7 +137,7 @@ void signal_handler(int sig) {
     }
 
     if (connected_clients_count > 0) {
-        printf("There were %d still connected clients.\n");
+        printf("There were %d still connected clients.\n", connected_clients_count);
     }
     
     close_socket(server_fd);

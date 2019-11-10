@@ -18,53 +18,77 @@
 #define BUFF_SIZE 1024
 #define NAME_BUFF_SIZE 50
 
-#define PORT 5001
+#define PORT 5000
+
+#define true 1
+#define DEFAULT_FLAGS 0
 
 int socket_fd = -1;
 
-char nameBuff[50]
+char name_buff[50];
 char buff[BUFF_SIZE];
 
-pthread_t* thread_id = NULL;
+pthread_t thread_id;
+
+void print_greeting() {
+    printf("\n************************************\n");
+    printf("*          Welcome to chat         *\n");
+    printf("************************************\n\n");
+}
 
 void ask_for_termination() {
     kill(getpid(), SIGINT);
 }
 
+void get_name() {
+    printf("Please enter your name: ");
+    fgets(name_buff, NAME_BUFF_SIZE, stdin);
+
+    int n = 0;
+    while (n < NAME_BUFF_SIZE) {
+        if (name_buff[n] == '\n') {
+            name_buff[n] = '\0';
+            break;
+        }
+
+        n++;
+    }
+}
+
 void close_socket() {
     if (socket_fd > 0) {
         printf("\nClosing server socket...\n");
-        shutdown(socket_fd, SH_RDWR);
+        shutdown(socket_fd, SHUT_RDWR);
         close(socket_fd);
     }
 }
 
 void* listening_runner(void* arg) {
-    char buff[BUFF_SIZE];
+    char recv_buff[BUFF_SIZE];
 
     while (1) {
-        bzero(buff, BUFF_SIZE);
-        int received_bytes = recv(sockfd, &buff, BUFF_SIZE, 0);
+        bzero(recv_buff, BUFF_SIZE);
+        int received_bytes = recv(socket_fd, &recv_buff, BUFF_SIZE, 0);
         if (received_bytes <= 0) {
             ask_for_termination();
-            return;
+            return NULL;
         }
 
-        printf("%s\n", buff);
+        printf("%s\n", recv_buff);
     }
+
+    return NULL;
 }
 
 /**
  * Signal handler function
  */
 void signal_handler(int sig) {
-    printf("Good bye :)\n");
+    printf("\nGood bye :)\n");
     
     close_socket();
 
-    if (thread_id != NULL) {
-        pthread_join(*thread_id, NULL);
-    }
+    pthread_join(thread_id, NULL);
 
     exit(0);
 }
@@ -86,16 +110,17 @@ void get_named_input() {
     printf(">");
 
     // copy name into buffer
-    int name_len = strlen(nameBuff);
-    buff[0] = "["
-    memcpy(buff + 1, nameBuff, name_len);
-    buff[name_len] = "]";
+    int offset = 0;
+    int name_len = strlen(name_buff);
+    buff[offset++] = '[';
+    memcpy(buff + offset, name_buff, name_len + offset);
+    offset += name_len;
+    buff[offset++] = ']';
+    buff[offset++] = ' ';
 
-    int n = name_len + 1; 
-    while ((buff[n++] = getchar()) != '\n') 
-        ; 
+    while ((buff[offset++] = getchar()) != '\n') { }
 
-    buff[n - 1] = '\0';    
+    buff[offset - 1] = '\0';
 }
 
 int main() { 
@@ -105,12 +130,14 @@ int main() {
 
     get_name();
 
+    printf("Hello, %s!\n", name_buff);
+
     // Creating socket file descriptor
     socket_fd = socket(AF_INET, SOCK_STREAM, DEFAULT_FLAGS);
     if (socket_fd < 0) { 
         perror("Error while creating a socket\n");
         exit(-1); 
-    } 
+    }
   
     struct sockaddr_in servaddr;
     memset(&servaddr, 0, sizeof(servaddr)); 
@@ -126,7 +153,9 @@ int main() {
         exit(-1); 
     }
 
-    if (pthread_create(thread_id, NULL, listening_runner, NULL) != 0) {
+    printf("Connected to server successfully!\n");    
+
+    if (pthread_create(&thread_id, NULL, listening_runner, NULL) != 0) {
         perror("Error while creating a thread");
         close_socket(); 
         exit(-1);
@@ -135,6 +164,6 @@ int main() {
     while(true) { 
         get_named_input();
 
-        send(sockfd, buff, strlen(buff), 0);
+        send(socket_fd, buff, strlen(buff), 0);
     } 
 } 
