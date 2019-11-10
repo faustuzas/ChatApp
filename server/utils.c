@@ -4,9 +4,15 @@
 #include <stdio.h> 
 
 void print_greeting() {
-    printf("******************************\n");
-    printf("*   Welcome to chat server   *\n");
-    printf("******************************\n\n");
+    printf("\n************************************\n");
+    printf("*      Welcome to chat server      *\n");
+    printf("************************************\n\n");
+}
+
+void print_goodbye() {
+    printf("\n************************************\n");
+    printf("*   Shutting down the server....   *\n");
+    printf("************************************\n\n");
 }
 
 int get_server_port() {

@@ -5,3 +5,4 @@ OBJS   = $(SRC:.c=.o)
 
 main: $(OBJS)
 	$(CC) $(OBJS) -g -o client
+	rm *.o

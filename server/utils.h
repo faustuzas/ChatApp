@@ -15,6 +15,8 @@ int get_server_port();
 
 void print_greeting();
 
+void print_goodbye();
+
 int next_index(int* array[], int size);
 
 #endif
